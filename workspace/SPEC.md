@@ -81,6 +81,65 @@ Slack Events API は **公開 HTTPS エンドポイントが必須**。開発時
 
 ---
 
+### 4. レート制限
+
+Notion API・Gemini API にはそれぞれレート制限があり、超過時に Bot がクラッシュ・サイレント失敗しないよう対処する。
+
+| API | 制限 | 超過時の挙動 |
+|---|---|---|
+| Notion API | 3 req/s（平均） | HTTP 429 を返す |
+| Gemini API | モデル・プランによる（無料枠は RPM 制限あり） | HTTP 429 を返す |
+
+**対策方針**
+
+- MCP の `callTool` および Gemini の `generateContent` 呼び出しは try/catch で囲み、429 エラーを明示的にキャッチする
+- 429 を受け取った場合は指数バックオフでリトライする（最大3回程度）
+- リトライ上限を超えた場合は「しばらく時間をおいて再試行してください」とユーザーに返す
+
+```typescript
+// 指数バックオフのユーティリティ例
+const withRetry = async <T>(
+  fn: () => Promise<T>,
+  maxRetries = 3,
+): Promise<T> => {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (e: any) {
+      const isRateLimit = e?.status === 429 || e?.message?.includes('429');
+      if (!isRateLimit || attempt === maxRetries - 1) throw e;
+      const waitMs = 1000 * 2 ** attempt;
+      console.warn(`Rate limited. Retrying in ${waitMs}ms...`);
+      await new Promise(r => setTimeout(r, waitMs));
+    }
+  }
+  throw new Error('unreachable');
+};
+```
+
+---
+
+### 5. Bot 自身へのメンションによる無限ループ対策
+
+Bot がチャンネル内でメンションを受け取ったとき、Bot 自身の発言がさらに `app_mention` イベントを引き起こすケースがある（Bot が自分自身をメンションした場合など）。これを放置すると無限ループが発生する。
+
+**対策：ハンドラ冒頭で `bot_id` チェックを追加する**
+
+```typescript
+// src/slack/handlers/mention.ts
+export const mentionHandler = async ({ event, say, client }: MentionArgs) => {
+  // Bot 自身の発言はスキップ
+  if (event.bot_id) return;
+
+  const userMessage = event.text.replace(/<@[A-Z0-9]+>/g, '').trim();
+  // ...以降の処理
+};
+```
+
+`event.bot_id` は Bot が送ったメッセージにのみ付与されるフィールド。ユーザー発言には含まれないため、このチェックで安全に除外できる。
+
+---
+
 ## 実装ロードマップ
 
 ### Step 1：Slack → Gemini の疎通確認（MCP なし）
@@ -137,6 +196,54 @@ slack-notion-gemini-bot/
 ├── package.json
 ├── tsconfig.json
 └── README.md
+```
+
+### テスト戦略
+
+#### ディレクトリ構成への追加
+
+```
+slack-notion-gemini-bot/
+├── src/
+│   └── ...（既存）
+├── tests/
+│   ├── unit/
+│   │   ├── mcp/
+│   │   │   └── tools.test.ts      # toFunctionDeclarations の変換ロジック
+│   │   └── gemini/
+│   │       └── agent.test.ts      # ループ制御・エラー処理
+│   └── integration/
+│       └── mention.test.ts        # メンション → 返答の E2E（モック使用）
+├── .env
+└── ...
+```
+
+#### テスト方針
+
+**単体テストの対象**
+
+| ファイル | テストする内容 |
+|---|---|
+| `mcp/tools.ts` の `toFunctionDeclarations` | MCP スキーマが正しく `FunctionDeclaration` 形式に変換されるか |
+| `gemini/agent.ts` の `runAgent` | `MAX_ITERATIONS` 到達時にエラーメッセージを返すか、`functionCall` がない場合に即座にテキストを返すか |
+| `slack/handlers/mention.ts` | `bot_id` が存在するイベントをスキップするか、メンション文字列が除去されるか |
+
+**モック戦略**
+
+- Gemini API・MCP クライアントは外部依存のため、単体テストでは Jest の `jest.mock` でモックする
+- 実際の Notion / Gemini への通信を伴うテストは integration テストとして分離し、CI では実行しない（ローカル確認のみ）
+
+**テストフレームワーク**
+
+```bash
+npm install -D jest ts-jest @types/jest
+```
+
+```json
+// package.json に追加
+"scripts": {
+  "test": "jest --testPathPattern=tests/unit"
+}
 ```
 
 ### 構成判断の理由
@@ -237,11 +344,152 @@ gcloud run deploy slack-bot \
 
 ---
 
-## 備考
+## 設計上の決定事項と制約
+
+### 備考
 
 - Gemini のモデルは `gemini-1.5-pro` または `gemini-2.0-flash` を推奨（function calling 対応必須）
 - Notion MCP が返す tools の数が多い場合、Gemini のコンテキスト長に注意
 - エージェントループは無限ループしないよう、最大イテレーション数を設けること
+
+### スレッドコンテキストの継承（直近5件）
+
+スレッド内で複数回メンションされた場合、Bot は**直近5件の会話履歴を引き継いで**回答を生成する。「さっき調べたページについてもっと詳しく」のような前の文脈を前提にした質問が可能になる。
+
+#### 実装方針
+
+`conversations.replies` でスレッド履歴を取得し、Gemini の `Content[]` 形式に変換して `runAgent` の初期履歴として渡す。変更ファイルは `mention.ts` と `agent.ts` の2つだけ。
+
+**割り切りポイント**
+
+| 項目 | 方針 |
+|---|---|
+| 引き継ぐ件数 | 直近5件（`HISTORY_LIMIT` 定数で変更可能） |
+| functionCall / functionResponse | 引き継がない（テキスト部分のみ） |
+| Bot 宛でないメッセージ | 除外する |
+| Bot の中間メッセージ（「少々お待ちください」） | 除外する |
+| スレッドなし（初回メンション） | 履歴なしで通常通り動作 |
+
+#### 実装
+
+**`src/gemini/agent.ts`**
+
+`runAgent` が外部から初期履歴を受け取れるように引数を追加する。デフォルト空配列のため既存の呼び出しは壊れない。
+
+```typescript
+export const runAgent = async (
+  userMessage: string,
+  priorHistory: Content[] = [],  // ← 追加
+): Promise<string> => {
+  // ...
+
+  // 過去の会話 + 今回のメッセージで履歴を初期化
+  const history: Content[] = [
+    ...priorHistory,
+    { role: 'user', parts: [{ text: userMessage }] },
+  ];
+
+  // ...以降は既存のループ処理と同じ
+};
+```
+
+**`src/slack/handlers/mention.ts`**
+
+```typescript
+import type { AllMiddlewareArgs, SlackEventMiddlewareArgs } from '@slack/bolt';
+import { runAgent } from '../../gemini/agent';
+import type { Content } from '@google/generative-ai';
+
+type MentionArgs = SlackEventMiddlewareArgs<'app_mention'> & AllMiddlewareArgs;
+
+const HISTORY_LIMIT = 5;
+
+const buildPriorHistory = async (
+  client: MentionArgs['client'],
+  event: MentionArgs['event'],
+  botUserId: string,
+): Promise<Content[]> => {
+  // スレッドでない（初回メンション）なら履歴なし
+  if (!event.thread_ts) return [];
+
+  const res = await client.conversations.replies({
+    channel: event.channel,
+    ts: event.thread_ts,
+    limit: HISTORY_LIMIT + 1,  // 今回の自分のメッセージ分を1件余分に取得
+  });
+
+  return (res.messages ?? [])
+    .filter(msg => {
+      if (msg.ts === event.ts) return false;  // 今回のメッセージ自体は除外
+      if (msg.bot_id && msg.text?.includes('少々お待ちください')) return false;  // 中間メッセージを除外
+      if (!msg.bot_id && !msg.text?.includes(`<@${botUserId}>`)) return false;  // Bot 宛でない発言を除外
+      return true;
+    })
+    .slice(-HISTORY_LIMIT)
+    .map(msg => ({
+      role: msg.bot_id ? 'model' : 'user',
+      parts: [{ text: (msg.text ?? '').replace(/<@[A-Z0-9]+>/g, '').trim() }],
+    } as Content));
+};
+
+export const mentionHandler = async ({ event, say, client }: MentionArgs) => {
+  if (event.bot_id) return;
+
+  const userMessage = event.text.replace(/<@[A-Z0-9]+>/g, '').trim();
+  await say({ text: '少々お待ちください...', thread_ts: event.ts });
+
+  // botUserId はリクエストごとに取得するのは無駄なため、将来的に起動時キャッシュへ移行する
+  const authRes = await client.auth.test();
+  const botUserId = authRes.user_id ?? '';
+
+  let reply: string;
+  try {
+    const priorHistory = await buildPriorHistory(client, event, botUserId);
+    reply = await runAgent(userMessage, priorHistory);
+  } catch (e) {
+    console.error('Agent error:', e);
+    reply = 'エラーが発生しました。しばらく待ってから再試行してください。';
+  }
+
+  await say({ text: reply, thread_ts: event.ts });
+};
+```
+
+#### 動作確認チェックリスト
+
+```
+□ 初回メンションが従来通り動く（履歴なしのケース）
+□ スレッドで2回目以降のメンションをすると、前の会話を踏まえた返答が来る
+□ 「さっき調べたページについてもっと詳しく」が意図通り動く
+□ 5件を超えるスレッドで古い履歴が引き継がれないことを確認
+□ Bot 宛でない他のユーザーの発言がコンテキストに入らないことを確認
+□ MAX_ITERATIONS に達した場合のエラーメッセージが返ってくる
+```
+
+#### 将来対応
+
+`client.auth.test()` はリクエストごとの呼び出しは無駄なため、`index.ts` 起動時に一度取得してモジュールスコープに保持するリファクタリングを検討する。
+
+---
+
+### Notion コンテンツサイズの制約
+
+Notion のページ本文が大きい場合（長文ドキュメント、大規模 DB など）、`callTool` の返却値が Gemini のコンテキスト長を超え、エラーまたは品質劣化が発生する可能性がある。
+
+**現時点の対応方針（MVP）**
+
+- `gemini-2.0-flash` のコンテキスト長は 1M トークンと大きいため、通常の Notion ページでは超過しにくい
+- 超過した場合はエラーとしてユーザーに返す（サイレント失敗しない）
+
+**将来的に対処が必要なケース**
+
+| ケース | 対応案 |
+|---|---|
+| 1ページが数万トークンを超える | `notion_retrieve_block_children` を分割して取得し、要約してから Gemini に渡す |
+| 検索結果が大量にヒットする | `notion_search` の結果件数を上限付きで絞り、スコアの高いものだけ詳細取得する |
+| DB に大量レコードがある | `notion_query_database` の `page_size` を明示的に指定してページネーションする |
+
+MVP 段階では上記の分割・要約ロジックは実装しない。超過時はエラーメッセージを返すにとどめ、対応が必要になった時点で `gemini/agent.ts` に処理を追加する。
 
 ---
 

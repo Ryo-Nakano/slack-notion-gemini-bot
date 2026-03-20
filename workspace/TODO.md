@@ -25,19 +25,19 @@
   - [x] Slack でメンションを送ると、Gemini モデルからの回答が返ってくることを確認
 
 ## Step 2：Notion MCP の接続確認
-- [ ] **2-1. Notion アプリの設定（ブラウザ作業）**
-  - [ ] Notion インテグレーション作成、`NOTION_API_KEY` の取得
-  - [ ] テスト用ページへのコネクト（インテグレーション）追加
-  - [ ] `.env` に API キーを設定
+- [x] **2-1. Notion アプリの設定（ブラウザ作業）**
+  - [x] Notion インテグレーション作成、`NOTION_API_KEY` の取得
+  - [x] テスト用ページへのコネクト（インテグレーション）追加
+  - [x] `.env` に API キーを設定
 - [x] **2-2. 追加パッケージのインストール**
   - [x] `@modelcontextprotocol/sdk`, `@notionhq/notion-mcp-server`
 - [x] **2-3. Notion MCP 接続の実装**
   - [x] `src/mcp/client.ts` (stdio 経由での MCP Client 起動と接続)
   - [x] `src/mcp/tools.ts` (`listTools` と `callTool` のラッパー実装)
   - [x] `src/index.ts` (一時的な疎通確認コードの追加)
-- [ ] **2-4. Step 2 の動作確認**
-  - [ ] アプリ起動時に tools の一覧がコンソールに出力されることを確認
-  - [ ] `callTool` を使って特定の Notion ページが取得できることを確認
+- [x] **2-4. Step 2 の動作確認**
+  - [x] アプリ起動時に tools の一覧がコンソールに出力されることを確認
+  - [x] `callTool` を使って特定の Notion ページが取得できることを確認
 
 ## Step 3：Gemini ↔ MCP ブリッジの実装
 - [ ] **3-1. tools の型変換の実装**
