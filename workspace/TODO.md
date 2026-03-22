@@ -53,8 +53,8 @@
   - [x] エラー時の挙動や該当ページが見つからない場合のフォールバックの確認
 
 ## Step 4：Botの回答精度・検索クオリティの向上
-- [ ] **4-1. ツール定義（description）のチューニング**
-  - [ ] `src/mcp/tools.ts` の `toFunctionDeclarations` 処理を改修し、Notion MCPのデフォルトの `description` を、Botのユースケースに特化した具体的な説明（いつ・どのツールを・どのように使うべきか）に上書きする
+- [x] **4-1. ツール定義（description）のチューニング**
+  - [x] `src/mcp/tools.ts` の `toFunctionDeclarations` 処理を改修し、Notion MCPのデフォルトの `description` を、Botのユースケースに特化した具体的な説明（いつ・どのツールを・どのように使うべきか）に上書きする
 - [ ] **4-2. システムプロンプト（systemInstruction）の高度化**
   - [ ] `src/gemini/agent.ts` の `systemInstruction` に以下を組み込む
     - [ ] **Notionのデータ構造**: 検索対象となる主要データベースのプロパティ構造
