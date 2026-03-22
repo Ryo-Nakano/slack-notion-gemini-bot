@@ -24,7 +24,19 @@ export const runAgent = async (
   ];
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
-    const result = await model.generateContent({ contents: history });
+    let result;
+    try {
+      result = await model.generateContent({ contents: history });
+    } catch (error: any) {
+      console.error('[Agent] Error calling Gemini API:', error);
+      if (error?.status === 429 || error?.message?.includes('429')) {
+        return '現在リクエストが混み合っているため、制限がかかっています。しばらく時間をおいてから再試行してください。';
+      }
+      if (error?.status === 400 || error?.message?.includes('Token limit') || error?.message?.includes('too large')) {
+        return '取得した情報が大きすぎるため、AIが処理できませんでした。もう少し条件を絞って質問してください。';
+      }
+      throw error;
+    }
     const response = result.response;
 
     // Function call があるか判定
@@ -52,10 +64,17 @@ export const runAgent = async (
         const toolResult = await callTool(toolName, toolArgs);
         console.log(`[Agent] Tool ${toolName} finished successfully.`);
 
+        const resultString = JSON.stringify(toolResult);
+        let finalResult: any = toolResult;
+        if (resultString.length > 100000) {
+          console.warn(`[Agent] Tool ${toolName} returned large result (${resultString.length} chars). Returning partial error to Gemini.`);
+          finalResult = { error: "Result is too large. Please refine your search query or specify a smaller page_size to reduce the response size." };
+        }
+
         toolResponsesParts.push({
           functionResponse: {
             name: toolName,
-            response: toolResult as Record<string, any>,
+            response: finalResult,
           },
         });
       } catch (error: any) {
