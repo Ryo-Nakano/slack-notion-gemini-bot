@@ -47,10 +47,10 @@ const mapProperties = (properties: any): Record<string, any> => {
 };
 
 const OVERRIDE_DESCRIPTIONS: Record<string, string> = {
-  'notion_query_database': '構造化されたNotionデータベースをプロパティ条件で検索する。日付・タグ・担当者など明確な条件で絞り込む場合に使う。例: 昨日の議事録、〇〇さんの担当タスク、先週の意思決定。',
-  'notion_search': 'Notion全体を対象としたキーワード全文検索機能。特定のデータベースに情報があるか不明な場合や、横断的にキーワードで素早く探したい場合に使う。',
-  'notion_retrieve_page': '特定のNotionページのメタデータやプロパティを取得する。検索（searchやquery_database）で該当するpage_idが判明したあとに、その詳細を得るために使う。',
-  'notion_retrieve_block_children': '特定のブロック（ページ単体も含む）内の子要素（本文テキストなど）を取得する。ページ自体の内容や詳細なコンテンツを読みたい場合に必要。',
+  'API-query-data-source': '構造化されたNotionデータベースをプロパティ条件で検索する。日付・タグ・ジャンルなど明確な条件で絞り込む場合に使う。例: 〇〇というお店、最近行った場所など。',
+  'API-post-search': 'Notion全体を対象としたキーワード全文検索機能。特定のデータベースに情報があるか不明な場合や、横断的にキーワードで素早く探したい場合に使う。',
+  'API-retrieve-a-page': '特定のNotionページのメタデータやプロパティを取得する。検索（searchやquery-data-source）で該当するpage_idが判明したあとに、その詳細を得るために使う。',
+  'API-get-block-children': '特定のブロック（ページ単体も含む）内の子要素（本文テキストなど）を取得する。ページ自体の内容や詳細なコンテンツを読みたい場合に必要。',
 };
 
 // MCP の tool スキーマを Gemini の FunctionDeclaration に変換

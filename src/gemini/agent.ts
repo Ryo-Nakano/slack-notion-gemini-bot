@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI, Content, Part } from '@google/generative-ai';
 import { listTools, callTool, toFunctionDeclarations } from '../mcp/tools';
+import { systemInstruction } from './prompts';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 const MAX_ITERATIONS = 10;
@@ -13,6 +14,7 @@ export const runAgent = async (
 
   const model = genAI.getGenerativeModel({
     model: 'gemini-3.1-flash-lite-preview',
+    systemInstruction,
     tools: [{ functionDeclarations }],
   });
 
