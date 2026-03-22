@@ -40,19 +40,34 @@
   - [x] `callTool` を使って特定の Notion ページが取得できることを確認
 
 ## Step 3：Gemini ↔ MCP ブリッジの実装
-- [ ] **3-1. tools の型変換の実装**
-  - [ ] `src/mcp/tools.ts` (MCP tools の schema を Gemini の `FunctionDeclaration` 形式に変換)
-- [ ] **3-2. エージェントループの実装**
-  - [ ] `src/gemini/agent.ts` (functionCall → callTool → functionResponse のやり取りをループ制御、最大イテレーション管理)
-- [ ] **3-3. ハンドラのつなぎこみとクリーンアップ**
-  - [ ] `src/slack/handlers/mention.ts` を直接の API 呼び出しからエージェント経由 (`runAgent`) に変更
-  - [ ] `src/index.ts` の疎通確認コードを削除し、きれいな状態に整備
-- [ ] **3-4. Step 3 の動作確認 (E2E)**
-  - [ ] Slack から「Notion を検索して」などと指示
-  - [ ] Gemini が MCP を複数回呼び出し、最終的な回答を Slack に返答するか確認
-  - [ ] エラー時の挙動や該当ページが見つからない場合のフォールバックの確認
+- [x] **3-1. tools の型変換の実装**
+  - [x] `src/mcp/tools.ts` (MCP tools の schema を Gemini の `FunctionDeclaration` 形式に変換)
+- [x] **3-2. エージェントループの実装**
+  - [x] `src/gemini/agent.ts` (functionCall → callTool → functionResponse のやり取りをループ制御、最大イテレーション管理)
+- [x] **3-3. ハンドラのつなぎこみとクリーンアップ**
+  - [x] `src/slack/handlers/mention.ts` を直接の API 呼び出しからエージェント経由 (`runAgent`) に変更
+  - [x] `src/index.ts` の疎通確認コードを削除し、きれいな状態に整備
+- [x] **3-4. Step 3 の動作確認 (E2E)**
+  - [x] Slack から「Notion を検索して」などと指示
+  - [x] Gemini が MCP を複数回呼び出し、最終的な回答を Slack に返答するか確認
+  - [x] エラー時の挙動や該当ページが見つからない場合のフォールバックの確認
 
-## デプロイ（任意）
+## Step 4：Botの回答精度・検索クオリティの向上
+- [ ] **4-1. ツール定義（description）のチューニング**
+  - [ ] `src/mcp/tools.ts` の `toFunctionDeclarations` 処理を改修し、Notion MCPのデフォルトの `description` を、Botのユースケースに特化した具体的な説明（いつ・どのツールを・どのように使うべきか）に上書きする
+- [ ] **4-2. システムプロンプト（systemInstruction）の高度化**
+  - [ ] `src/gemini/agent.ts` の `systemInstruction` に以下を組み込む
+    - [ ] **Notionのデータ構造**: 検索対象となる主要データベースのプロパティ構造
+    - [ ] **質問タイプ別の検索戦略**: 質問に応じて `query_database`, `search`, `retrieve_page` をどう使い分けるかの指針
+    - [ ] **ReActパターンの指示**: 「計画 → ツール実行 → 確認 → 回答」の思考フローの徹底
+    - [ ] **Few-shotサンプル**: 期待される思考プロセスと検索の成功事例を提示
+- [ ] **4-3. 検索結果の最適化とフォールバック処理**
+  - [ ] 検索結果が0件だった場合の再検索アクションや、見つからない旨を正直に伝える指示をプロンプトに追記
+  - [ ] [Optional] 取得したページデータが大きすぎる場合のコンテキスト長節約処理（メタデータの削減など）
+- [ ] **4-4. [Optional] スキーマ情報のキャッシュ機構の導入**
+  - [ ] 動的にデータベースのスキーマを取得してプロンプトに組み込む場合、毎回のリクエストでAPIを叩かないよう一定時間（1時間など）のインメモリキャッシュを実装する
+
+## Step 5：デプロイ（任意）
 - [ ] **Docker 環境整備**
   - [ ] `Dockerfile` の用意（`npx` で Notion MCP を実行できる Node.js 実行環境）
   - [ ] `docker compose up` でのローカルコンテナ動作確認
